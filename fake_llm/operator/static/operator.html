@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>假LLM操作台</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 20px; }
+  h3 { margin-bottom: 4px; }
+  #status { color: #888; font-size: 13px; margin-bottom: 12px; }
+  #q { white-space: pre-wrap; background: #1b1b2f; padding: 14px; border-radius: 8px;
+       min-height: 100px; margin: 10px 0; font-size: 14px; }
+  textarea { width: 100%; height: 110px; background: #222; color: #eee;
+             border: 1px solid #444; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+  button { margin: 8px 8px 0 0; padding: 8px 24px; background: #2d5bff; color: #fff;
+           border: none; border-radius: 6px; cursor: pointer; }
+  button.secondary { background: #444; }
+  #tip { color: #888; font-size: 13px; line-height: 1.7; }
+  code { background: #2a2a2a; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h3>🎭 假LLM操作台（OpenAI + Anthropic 双协议）</h3>
+<div id="status">排队中: 0</div>
+<div id="q">（等待请求…）</div>
+<textarea id="a" placeholder="输入回答；Ctrl+Enter 发送"></textarea>
+<button onclick="submit()">发送</button>
+<button class="secondary" onclick="skip()">跳过该请求</button>
+<p id="tip">
+  💡 普通文字 = 普通回答；调用工具请写：<code>!tool get_weather {"city": "北京"}</code><br>
+  💡 伪装提示：像模型一样分点作答、别说口头语、别用emoji泛滥
+</p>
+<script>
+let cur = null;
+const qEl = document.getElementById("q");
+const aEl = document.getElementById("a");
+const statusEl = document.getElementById("status");
+
+async function poll() {
+  const d = await (await fetch("/operator/next")).json();
+  statusEl.textContent = `排队中: ${d.queued ?? 0}`;
+  if (d.request_id && cur !== d.request_id) {
+    cur = d.request_id;
+    qEl.textContent =
+      `【伪装模型: ${d.model}】\n\n` +
+      d.messages.map(m => `[${m.role}] ${m.content}`).join("\n\n");
+  }
+}
+
+async function submit() {
+  if (!cur) return;
+  const res = await fetch("/operator/answer", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({request_id: cur, answer: aEl.value}),
+  });
+  if (!res.ok) {
+    alert((await res.json()).error);
+    return;
+  }
+  aEl.value = "";
+  cur = null;
+  qEl.textContent = "（已发送，等待下一个请求…）";
+  poll();
+}
+
+async function skip() {
+  if (!cur) return;
+  await fetch("/operator/skip", {method: "POST"});
+  cur = null;
+  qEl.textContent = "（已跳过）";
+  poll();
+}
+
+aEl.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") submit();
+});
+
+setInterval(poll, __POLL_MS__);
+poll();
+</script>
+</body>
+</html>
