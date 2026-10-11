@@ -28,15 +28,14 @@
 ## 安装与启动
 
 ```bash
-git clone https://github.com/OWNER/REPOSITORY.git
-cd REPOSITORY
+git clone https://github.com/Qiu-liang/Artisan-Sapiens.git
+cd Artisan-Sapiens
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 fake-llm
 ```
 
-将 `OWNER/REPOSITORY` 替换成你的 GitHub 用户名和仓库名。
 
 服务默认运行在 `http://localhost:8000`。打开 [http://localhost:8000/operator](http://localhost:8000/operator) 使用操作台。
 
