@@ -39,7 +39,13 @@ fake-llm
 
 服务默认运行在 `http://localhost:8000`。打开 [http://localhost:8000/operator](http://localhost:8000/operator) 使用操作台。
 
-也可以使用仓库中的启动脚本 `./start.sh`。它会在需要时创建 `.venv` 并安装项目。
+也可以使用跨平台启动器：
+
+- macOS / Linux：运行 `./start.sh`
+- Windows：双击 `start.bat`，或在命令提示符中运行 `start.bat`
+- 任意平台：运行 `python start.py`（macOS / Linux 也可用 `python3 start.py`）
+
+首次启动时，启动器会在项目目录下创建 `.venv`、安装项目依赖，然后启动服务。后续启动会复用该虚拟环境。
 
 ## 使用
 
