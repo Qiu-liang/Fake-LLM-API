@@ -10,7 +10,13 @@
   #q { white-space: pre-wrap; background: #1b1b2f; padding: 14px; border-radius: 8px;
        min-height: 100px; margin: 10px 0; font-size: 14px; }
   #q .model { color: #9ab; margin-bottom: 8px; }
-  #q .role { margin-top: 10px; color: #8ab; }
+  #q .context { margin: 10px 0 14px; border: 1px solid #353545; border-radius: 6px;
+                background: #171721; }
+  #q .context summary { padding: 9px 11px; color: #aaa; cursor: pointer; }
+  #q .context-content { max-height: 45vh; overflow: auto; padding: 0 12px 10px; }
+  #q .latest-label { margin-top: 14px; color: #9ab; font-size: 12px; }
+  #q .role { margin-top: 8px; color: #8ab; }
+  #q .message-content { padding-left: 10px; }
   #q img { max-width: 320px; max-height: 240px; display: block; margin: 6px 0;
            border-radius: 6px; border: 1px solid #333; }
   textarea { width: 100%; height: 110px; background: #222; color: #eee;
@@ -50,24 +56,55 @@ function render(d) {
   model.className = "model";
   model.textContent = "【伪装模型: " + d.model + "】";
   qEl.appendChild(model);
-  for (const m of d.messages) {
-    const role = document.createElement("div");
-    role.className = "role";
-    role.textContent = "[" + m.role + "]";
-    qEl.appendChild(role);
-    for (const p of m.parts || []) {
-      if (p.type === "image" && isRenderableImage(p.url)) {
-        const img = document.createElement("img");
-        img.src = p.url;
-        if (p.media_type) img.alt = p.media_type;
-        qEl.appendChild(img);
-      } else {
-        const div = document.createElement("div");
-        div.textContent = p.type === "image" ? "[不支持的图片地址]" : p.text;
-        qEl.appendChild(div);
-      }
+
+  const messages = d.messages || [];
+  const context = messages.slice(0, -1);
+  const latest = messages[messages.length - 1];
+  if (context.length) {
+    const details = document.createElement("details");
+    details.className = "context";
+    const summary = document.createElement("summary");
+    summary.textContent = "此前上下文 · " + context.length + " 条消息（点击展开）";
+    details.appendChild(summary);
+    const content = document.createElement("div");
+    content.className = "context-content";
+    for (const m of context) content.appendChild(renderMessage(m));
+    details.appendChild(content);
+    qEl.appendChild(details);
+  }
+
+  if (latest) {
+    const label = document.createElement("div");
+    label.className = "latest-label";
+    label.textContent = "最新消息";
+    qEl.appendChild(label);
+    qEl.appendChild(renderMessage(latest));
+  }
+}
+
+function renderMessage(m) {
+  const message = document.createElement("div");
+  message.className = "message";
+  const role = document.createElement("div");
+  role.className = "role";
+  role.textContent = "[" + m.role + "]";
+  message.appendChild(role);
+  const content = document.createElement("div");
+  content.className = "message-content";
+  for (const p of m.parts || []) {
+    if (p.type === "image" && isRenderableImage(p.url)) {
+      const img = document.createElement("img");
+      img.src = p.url;
+      if (p.media_type) img.alt = p.media_type;
+      content.appendChild(img);
+    } else {
+      const div = document.createElement("div");
+      div.textContent = p.type === "image" ? "[不支持的图片地址]" : p.text;
+      content.appendChild(div);
     }
   }
+  message.appendChild(content);
+  return message;
 }
 
 async function poll() {
