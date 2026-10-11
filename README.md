@@ -1,110 +1,167 @@
-# Fake LLM — 真人冒充LLM服务
+# Fake LLM
 
-以 **OpenAI / Anthropic 双协议**对外提供接口，请求统一排队，由人类操作员在同一个控制台作答，服务器再把同一段回答包装回对应协议的格式。
+**用真人回答代替模型输出的本地 API 服务。** Fake LLM 接收兼容 OpenAI 或 Anthropic 的请求，将对话放进一个共享队列；操作员在网页控制台阅读请求并作答，服务再把答案包装成对应协议的响应。
 
-```
-Agent(OpenAI SDK)  ──→ /v1/chat/completions ─┐
-                                              ├─→ 统一队列 ─→ 人类操作台 ─→ 统一答案
-Agent(Anthropic SDK) ─→ /v1/messages ────────┘        (/operator)      ↓
-                                                                格式适配回包
-```
+它适合调试 Agent、观察 Agent 如何组织请求，以及在不调用真实模型的情况下手动控制模型输出。
 
-## 项目结构
+## 功能
 
-```
-fake_llm/
-├── app.py                  # FastAPI 应用组装（create_app）
-├── __main__.py             # 启动入口（fake-llm / python -m fake_llm）
-├── settings.py             # 配置（环境变量）
-├── core/                   # 协议无关的核心
-│   ├── types.py            # ChatRequest / ChatMessage(parts) / TextAnswer / ToolAnswer 统一内部格式
-│   ├── content.py          # 文本/图片 part 解析辅助、token 估算、操作员输入解析
-│   └── bridge.py           # 排队桥梁：Agent 阻塞等待，操作台拉取/作答/跳过
-├── protocols/              # 协议适配层（抹平两家差异）
-│   ├── base.py             # ProtocolAdapter 接口 + 路由注册
-│   ├── openai.py           # 解析 / 回包 / SSE 流式
-│   └── anthropic.py        # 解析 / 回包 / SSE 事件流
-└── operator/
-    ├── routes.py           # /operator 页面与操作接口
-    └── static/operator.html
-tests/                      # 单测（协议层）+ 集成测试（全链路）
-examples/                   # 两种 Agent 的接入示例
-```
+- 提供 OpenAI Chat Completions 和 Anthropic Messages 两种接口。
+- 提供网页操作台查看、回答或跳过排队请求。
+- 支持普通文本、工具调用格式和流式响应。
+- 支持 OpenAI 与 Anthropic 请求中的图片输入，并在操作台显示图片。
+- 无需模型 API 密钥；兼容 SDK 初始化时可填写任意占位值。
 
-新增协议（如 Gemini）只需实现一个 `ProtocolAdapter`（`parse` / `response` / `stream`），在 `app.py` 注册即可，核心队列与操作台零改动。
+## 安全说明
 
-## 快速开始
+操作台和推理接口目前都没有身份验证。服务默认监听 `0.0.0.0`，这会让同一网络中的其他设备也可能访问它。请只在可信的本机或网络中运行，不要直接暴露到公网；在本机使用时，建议将 `FAKE_LLM_HOST` 设为 `127.0.0.1`。
+
+## 环境要求
+
+- Python 3.10 或更高版本
+- pip
+
+## 安装与启动
 
 ```bash
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-fake-llm            # 或 python -m fake_llm
+git clone https://github.com/OWNER/REPOSITORY.git
+cd REPOSITORY
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+fake-llm
 ```
 
-- 操作台：http://localhost:8000/operator
-- 健康检查：`GET /health`；模型列表：`GET /v1/models`
+将 `OWNER/REPOSITORY` 替换成你的 GitHub 用户名和仓库名。
 
-操作员输入规则：
+服务默认运行在 `http://localhost:8000`。打开 [http://localhost:8000/operator](http://localhost:8000/operator) 使用操作台。
 
-- 普通文字 → 普通回答
-- `!tool get_weather {"city": "北京"}` → 工具调用
-- Ctrl+Enter 发送；「跳过该请求」把当前任务放回队尾
+也可以使用仓库中的启动脚本 `./start.sh`。它会在需要时创建 `.venv` 并安装项目。
 
-## 多模态（图片输入）
+## 使用
 
-消息内容在内部统一为 parts：`{"type": "text"}` / `{"type": "image"}`，两家协议的图片块都会被解析，操作台直接内联显示图片。
+安装对应的 SDK：
 
-- **OpenAI**：`{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}`（也支持 http(s) URL 与 Responses API 的 `input_image`）
-- **Anthropic**：`{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "..."}}` 或 `{"type": "url", "url": "..."}`
-
-```python
-client.chat.completions.create(
-    model="fake-gpt",
-    messages=[{"role": "user", "content": [
-        {"type": "text", "text": "图里是什么？"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
-    ]}])
+```bash
+python -m pip install openai anthropic
 ```
 
-操作员回答暂只支持纯文本 / `!tool`（两种协议的 assistant 回复本身也不返回图片）。图片按每张约 85 token 计入 usage。
-
-## Agent 接入
-
-OpenAI 阵营：
+### OpenAI SDK
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="fake")
-client.chat.completions.create(model="fake-gpt",
-    messages=[{"role": "user", "content": "北京天气如何？"}])
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="fake",  # 服务不校验此值；SDK 要求提供非空值
+)
+
+response = client.chat.completions.create(
+    model="fake-gpt",
+    messages=[{"role": "user", "content": "你好！请介绍一下自己。"}],
+)
+print(response.choices[0].message.content)
 ```
 
-Anthropic 阵营：
+### Anthropic SDK
 
 ```python
 from anthropic import Anthropic
-client = Anthropic(base_url="http://localhost:8000", api_key="fake")
-client.messages.create(model="fake-claude", max_tokens=1024,
-    messages=[{"role": "user", "content": "你好"}])
+
+client = Anthropic(
+    base_url="http://localhost:8000",
+    api_key="fake",  # 服务不校验此值；SDK 要求提供非空值
+)
+
+response = client.messages.create(
+    model="fake-claude",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "你好！"}],
+)
+print(response.content)
 ```
 
-## 配置（环境变量）
+发起请求后，打开操作台输入回答并提交，调用方就会收到该回答。请求会一直等待，直到操作员作答。
 
-| 变量 | 默认值 | 说明 |
+## 工具调用
+
+在操作台输入以下格式可返回一次工具调用：
+
+```text
+!tool get_weather {"city": "北京"}
+```
+
+调用方会收到对应协议的工具调用响应。Fake LLM 只负责返回工具调用，不会执行工具；Agent 收到响应后如何处理由调用方决定。
+
+## 图片输入
+
+OpenAI 风格的图片块和 Anthropic 风格的图片块都会显示在操作台。OpenAI SDK 示例：
+
+```python
+response = client.chat.completions.create(
+    model="fake-gpt",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "请描述这张图片。"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "https://example.com/image.png"},
+                },
+            ],
+        }
+    ],
+)
+```
+
+本地图片也可以编码成 `data:image/...;base64,...` URL 传入。操作员的回复目前是纯文本或工具调用，不能返回图片。
+
+## 接口
+
+| 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `FAKE_LLM_HOST` | `0.0.0.0` | 监听地址 |
+| `POST` | `/v1/chat/completions` | OpenAI Chat Completions 请求 |
+| `POST` | `/v1/messages` | Anthropic Messages 请求 |
+| `GET` | `/v1/models` | 列出示例模型 ID |
+| `GET` | `/health` | 服务状态和等待中的请求数量 |
+| `GET` | `/operator` | 网页操作台 |
+
+`stream: true` 会返回 SSE 流式响应。流式内容由服务逐段发送，用于兼容客户端的流式处理；它不代表模型推理过程。
+
+## 配置
+
+通过环境变量配置服务。默认值见下表：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `FAKE_LLM_HOST` | `0.0.0.0` | 监听地址；本机使用建议设为 `127.0.0.1` |
 | `FAKE_LLM_PORT` | `8000` | 监听端口 |
-| `FAKE_LLM_TEXT_DELAY_MIN` / `_MAX` | `0.01` / `0.04` | 流式逐字延迟（秒） |
-| `FAKE_LLM_TOOL_DELAY` | `0.002` | 工具参数逐字延迟（秒） |
-| `FAKE_LLM_OPERATOR_POLL_MS` | `1500` | 操作台轮询间隔（毫秒） |
+| `FAKE_LLM_TEXT_DELAY_MIN` | `0.01` | 流式文本最小字符间隔，单位秒 |
+| `FAKE_LLM_TEXT_DELAY_MAX` | `0.04` | 流式文本最大字符间隔，单位秒 |
+| `FAKE_LLM_TOOL_DELAY` | `0.002` | 流式工具参数字符间隔，单位秒 |
+| `FAKE_LLM_OPERATOR_POLL_MS` | `1500` | 操作台轮询间隔，单位毫秒 |
+
+例如，在 macOS 或 Linux 的 shell 中仅对当前进程设置本机监听：
+
+```bash
+FAKE_LLM_HOST=127.0.0.1 fake-llm
+```
 
 ## 开发
 
 ```bash
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 pytest
 ```
 
-## 伪装提示
+## 当前范围
 
-像模型一样分点作答、不说口头语、不用 emoji 泛滥——操作台越像 LLM，Agent 行为越真实。
+- 请求在进程内存中排队；服务重启后不会恢复，多个服务进程之间也不共享队列。
+- 当前只实现上述两个对话端点，不是完整的 OpenAI 或 Anthropic API 替代品。
+- Token 用量是粗略估算值，不适用于计费或模型性能评估。
+- 请求会等待人工操作员回答；没有自动生成答案的模型。
+
+## 许可证
+
+[MIT License](LICENSE)
