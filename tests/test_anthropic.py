@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from fake_llm.core import TextAnswer, ToolAnswer
+from fake_llm.core import ImagePart, TextAnswer, TextPart, ToolAnswer
 from fake_llm.protocols.anthropic import AnthropicAdapter
 from fake_llm.settings import Settings
 
@@ -31,8 +31,34 @@ def test_parse_lifts_system() -> None:
     req = adapter.parse(body)
     assert req.model == "claude-x"
     assert [m.role for m in req.messages] == ["system", "user", "assistant"]
-    assert req.messages[1].content == "你好"
-    assert req.messages[2].content == '[调用 get_weather] {"city": "北京"}\n[工具返回] "晴"'
+    assert req.messages[1].text == "你好"
+    assert req.messages[2].text == '[调用 get_weather] {"city": "北京"}\n[工具返回] "晴"'
+
+
+def test_parse_multimodal() -> None:
+    body = {
+        "model": "claude-x",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "图里有什么"},
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/jpeg", "data": "AAAA"},
+                    },
+                    {"type": "image", "source": {"type": "url", "url": "https://example.com/a.png"}},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}},
+                ],
+            }
+        ],
+    }
+    parts = adapter.parse(body).messages[0].parts
+    assert parts == [
+        TextPart("图里有什么"),
+        ImagePart(url="data:image/jpeg;base64,AAAA", media_type="image/jpeg"),
+        ImagePart(url="https://example.com/a.png", media_type=""),
+    ]
 
 
 def test_response_text() -> None:

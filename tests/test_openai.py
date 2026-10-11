@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from fake_llm.core import TextAnswer, ToolAnswer
+from fake_llm.core import ImagePart, TextAnswer, TextPart, ToolAnswer
 from fake_llm.protocols.openai import OpenAIAdapter
 from fake_llm.settings import Settings
 
@@ -32,9 +32,34 @@ def test_parse() -> None:
     req = adapter.parse(body)
     assert req.model == "gpt-x"
     assert [m.role for m in req.messages] == ["system", "user", "assistant", "tool"]
-    assert req.messages[1].content == "天气如何"
-    assert req.messages[2].content == "[助手请求调用工具: get_weather]"
-    assert req.messages[3].content == "晴"
+    assert req.messages[1].text == "天气如何"
+    assert req.messages[2].text == "[助手请求调用工具: get_weather]"
+    assert req.messages[3].text == "晴"
+
+
+def test_parse_multimodal() -> None:
+    body = {
+        "model": "gpt-x",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "图里有什么"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    {"type": "image_url", "image_url": "https://example.com/a.jpg"},
+                    {"type": "input_image", "image_url": "data:image/jpeg;base64,BBBB"},
+                ],
+            }
+        ],
+    }
+    parts = adapter.parse(body).messages[0].parts
+    assert parts == [
+        TextPart("图里有什么"),
+        ImagePart(url="data:image/png;base64,AAAA", media_type="image/png"),
+        ImagePart(url="https://example.com/a.jpg", media_type=""),
+        ImagePart(url="data:image/jpeg;base64,BBBB", media_type="image/jpeg"),
+    ]
+    assert adapter.parse(body).messages[0].text == "图里有什么\n[图片]\n[图片]\n[图片]"
 
 
 def test_response_text() -> None:

@@ -17,8 +17,8 @@ fake_llm/
 ├── __main__.py             # 启动入口（fake-llm / python -m fake_llm）
 ├── settings.py             # 配置（环境变量）
 ├── core/                   # 协议无关的核心
-│   ├── types.py            # ChatRequest / TextAnswer / ToolAnswer 统一内部格式
-│   ├── content.py          # content block 归一化、token 估算、操作员输入解析
+│   ├── types.py            # ChatRequest / ChatMessage(parts) / TextAnswer / ToolAnswer 统一内部格式
+│   ├── content.py          # 文本/图片 part 解析辅助、token 估算、操作员输入解析
 │   └── bridge.py           # 排队桥梁：Agent 阻塞等待，操作台拉取/作答/跳过
 ├── protocols/              # 协议适配层（抹平两家差异）
 │   ├── base.py             # ProtocolAdapter 接口 + 路由注册
@@ -49,6 +49,24 @@ fake-llm            # 或 python -m fake_llm
 - 普通文字 → 普通回答
 - `!tool get_weather {"city": "北京"}` → 工具调用
 - Ctrl+Enter 发送；「跳过该请求」把当前任务放回队尾
+
+## 多模态（图片输入）
+
+消息内容在内部统一为 parts：`{"type": "text"}` / `{"type": "image"}`，两家协议的图片块都会被解析，操作台直接内联显示图片。
+
+- **OpenAI**：`{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}`（也支持 http(s) URL 与 Responses API 的 `input_image`）
+- **Anthropic**：`{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "..."}}` 或 `{"type": "url", "url": "..."}`
+
+```python
+client.chat.completions.create(
+    model="fake-gpt",
+    messages=[{"role": "user", "content": [
+        {"type": "text", "text": "图里是什么？"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]}])
+```
+
+操作员回答暂只支持纯文本 / `!tool`（两种协议的 assistant 回复本身也不返回图片）。图片按每张约 85 token 计入 usage。
 
 ## Agent 接入
 

@@ -1,6 +1,26 @@
 from .bridge import Bridge
-from .content import AnswerParseError, estimate_tokens, norm_content, parse_operator_answer
-from .types import Answer, ChatMessage, ChatRequest, TextAnswer, ToolAnswer
+from .content import (
+    AnswerParseError,
+    data_uri,
+    estimate_parts,
+    estimate_request,
+    media_type_of,
+    parse_operator_answer,
+    part_to_json,
+    tool_calls_annotation,
+    tool_result_annotation,
+    tool_use_annotation,
+)
+from .types import (
+    Answer,
+    ChatMessage,
+    ChatRequest,
+    ContentPart,
+    ImagePart,
+    TextAnswer,
+    TextPart,
+    ToolAnswer,
+)
 
 __all__ = [
     "Answer",
@@ -8,9 +28,18 @@ __all__ = [
     "Bridge",
     "ChatMessage",
     "ChatRequest",
+    "ContentPart",
+    "ImagePart",
     "TextAnswer",
+    "TextPart",
     "ToolAnswer",
-    "estimate_tokens",
-    "norm_content",
+    "data_uri",
+    "estimate_parts",
+    "estimate_request",
+    "media_type_of",
     "parse_operator_answer",
+    "part_to_json",
+    "tool_calls_annotation",
+    "tool_result_annotation",
+    "tool_use_annotation",
 ]

@@ -95,10 +95,10 @@ async def test_same_console_serves_both_protocols(client: AsyncClient) -> None:
     await asyncio.sleep(0.05)
     nxt = (await client.get("/operator/next")).json()
     assert nxt["queued"] == 2
-    assert nxt["messages"][0]["content"] == "一"
+    assert nxt["messages"][0]["parts"][0]["text"] == "一"
     await client.post("/operator/answer", json={"request_id": nxt["request_id"], "answer": "A"})
     nxt = (await client.get("/operator/next")).json()
-    assert nxt["messages"][0]["content"] == "二"
+    assert nxt["messages"][0]["parts"][0]["text"] == "二"
     await client.post("/operator/answer", json={"request_id": nxt["request_id"], "answer": "B"})
     assert (await task_oai).json()["choices"][0]["message"]["content"] == "A"
     assert (await task_claude).json()["content"][0]["text"] == "B"
@@ -197,6 +197,75 @@ async def test_anthropic_stream_roundtrip(client: AsyncClient) -> None:
         if line.startswith("data: ") and '"text_delta"' in line
     )
     assert text == "你好"
+
+
+async def test_openai_vision_roundtrip(client: AsyncClient) -> None:
+    task = asyncio.create_task(
+        client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "fake-gpt",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "图里是什么？"},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:image/png;base64,AAAA"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+    await asyncio.sleep(0.05)
+    nxt = (await client.get("/operator/next")).json()
+    assert nxt["messages"][0]["parts"] == [
+        {"type": "text", "text": "图里是什么？"},
+        {"type": "image", "url": "data:image/png;base64,AAAA", "media_type": "image/png"},
+    ]
+    await client.post("/operator/answer", json={"request_id": nxt["request_id"], "answer": "一只猫"})
+    resp = await task
+    assert resp.json()["choices"][0]["message"]["content"] == "一只猫"
+
+
+async def test_anthropic_image_roundtrip(client: AsyncClient) -> None:
+    task = asyncio.create_task(
+        client.post(
+            "/v1/messages",
+            json={
+                "model": "fake-claude",
+                "max_tokens": 64,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": "BBBB",
+                                },
+                            },
+                            {"type": "text", "text": "描述这张图"},
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+    await asyncio.sleep(0.05)
+    nxt = (await client.get("/operator/next")).json()
+    assert nxt["messages"][0]["parts"] == [
+        {"type": "image", "url": "data:image/jpeg;base64,BBBB", "media_type": "image/jpeg"},
+        {"type": "text", "text": "描述这张图"},
+    ]
+    await client.post("/operator/answer", json={"request_id": nxt["request_id"], "answer": "一只猫"})
+    resp = await task
+    assert resp.json()["content"][0]["text"] == "一只猫"
 
 
 async def test_models(client: AsyncClient) -> None:

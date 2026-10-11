@@ -3,32 +3,72 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .types import Answer, TextAnswer, ToolAnswer
+from .types import (
+    Answer,
+    ChatRequest,
+    ContentPart,
+    ImagePart,
+    TextAnswer,
+    TextPart,
+    ToolAnswer,
+)
+
+IMAGE_TOKENS = 85
 
 
-def norm_content(content: Any) -> str:
-    """OpenAI 的 content 与 Anthropic 的 content block 数组统一转纯文本。"""
-    if isinstance(content, str):
-        return content
-    parts: list[str] = []
-    for block in content or []:
-        if isinstance(block, str):
-            parts.append(block)
-        elif block.get("type") == "text":
-            parts.append(block.get("text", ""))
-        elif block.get("type") == "tool_result":
-            parts.append(f"[工具返回] {json.dumps(block.get('content', ''), ensure_ascii=False)}")
-        elif block.get("type") == "tool_use":
-            parts.append(
-                f"[调用 {block.get('name')}] {json.dumps(block.get('input', {}), ensure_ascii=False)}"
-            )
-        elif block.get("type") == "image":
-            parts.append("[图片]")
-    return "\n".join(p for p in parts if p)
+def data_uri(media_type: str, data: str) -> str:
+    return f"data:{media_type or 'application/octet-stream'};base64,{data}"
+
+
+def media_type_of(url: str) -> str:
+    if url.startswith("data:"):
+        header = url[5:].split(",", 1)[0]
+        return header.split(";")[0] if header else ""
+    return ""
+
+
+def tool_use_annotation(name: str, payload: Any) -> str:
+    return f"[调用 {name}] {json.dumps(payload, ensure_ascii=False)}"
+
+
+def tool_result_annotation(content: Any) -> str:
+    if isinstance(content, list):
+        texts = [
+            b.get("text", "")
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+        joined = "\n".join(t for t in texts if t)
+        content = joined or content
+    return f"[工具返回] {json.dumps(content, ensure_ascii=False)}"
+
+
+def tool_calls_annotation(names: str) -> str:
+    return f"[助手请求调用工具: {names}]"
 
 
 def estimate_tokens(text: str) -> int:
     return (len(text) + 3) // 4 if text else 0
+
+
+def estimate_parts(parts: list[ContentPart]) -> int:
+    total = 0
+    for part in parts:
+        if isinstance(part, TextPart):
+            total += estimate_tokens(part.text)
+        elif isinstance(part, ImagePart):
+            total += IMAGE_TOKENS
+    return total
+
+
+def estimate_request(request: ChatRequest) -> int:
+    return sum(estimate_parts(m.parts) for m in request.messages)
+
+
+def part_to_json(part: ContentPart) -> dict[str, Any]:
+    if isinstance(part, ImagePart):
+        return {"type": "image", "url": part.url, "media_type": part.media_type}
+    return {"type": "text", "text": part.text}
 
 
 class AnswerParseError(ValueError):

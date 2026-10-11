@@ -6,7 +6,19 @@ import random
 import time
 from typing import Any, AsyncIterator
 
-from ..core import Answer, ChatMessage, ChatRequest, TextAnswer, ToolAnswer, estimate_tokens, norm_content
+from ..core import (
+    Answer,
+    ChatMessage,
+    ChatRequest,
+    ContentPart,
+    ImagePart,
+    TextAnswer,
+    TextPart,
+    ToolAnswer,
+    estimate_request,
+    media_type_of,
+    tool_calls_annotation,
+)
 from ..settings import Settings
 from .base import new_id
 
@@ -18,22 +30,21 @@ class OpenAIAdapter:
     def parse(self, body: dict[str, Any]) -> ChatRequest:
         messages = []
         for m in body.get("messages", []):
-            content = norm_content(m.get("content"))
+            parts = _content_parts(m.get("content"))
             tool_calls = m.get("tool_calls") or []
             if tool_calls:
                 names = ", ".join(
                     tc.get("function", {}).get("name", "?") for tc in tool_calls
                 )
-                note = f"[助手请求调用工具: {names}]"
-                content = f"{content}\n{note}" if content else note
-            messages.append(ChatMessage(role=m.get("role", "assistant"), content=content))
+                parts.append(TextPart(tool_calls_annotation(names)))
+            messages.append(ChatMessage(role=m.get("role", "assistant"), parts=parts))
         return ChatRequest(messages=messages, model=body.get("model", "fake-gpt"))
 
     def response(self, request: ChatRequest, answer: Answer) -> dict[str, Any]:
         if isinstance(answer, TextAnswer):
             message: dict[str, Any] = {"role": "assistant", "content": answer.text}
             finish = "stop"
-            completion_tokens = estimate_tokens(answer.text)
+            completion_tokens = _completion_tokens(answer)
         else:
             message = {
                 "role": "assistant",
@@ -41,8 +52,8 @@ class OpenAIAdapter:
                 "tool_calls": [_tool_call(answer)],
             }
             finish = "tool_calls"
-            completion_tokens = estimate_tokens(json.dumps(answer.input, ensure_ascii=False))
-        prompt_tokens = estimate_tokens("".join(m.content for m in request.messages))
+            completion_tokens = _completion_tokens(answer)
+        prompt_tokens = estimate_request(request)
         return {
             "id": new_id("chatcmpl-"),
             "object": "chat.completion",
@@ -102,6 +113,32 @@ class OpenAIAdapter:
                 await asyncio.sleep(settings.tool_delay)
             yield chunk({}, finish="tool_calls")
         yield "data: [DONE]\n\n"
+
+
+def _content_parts(content: Any) -> list[ContentPart]:
+    if isinstance(content, str):
+        return [TextPart(content)]
+    parts: list[ContentPart] = []
+    for block in content or []:
+        if isinstance(block, str):
+            parts.append(TextPart(block))
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            parts.append(TextPart(block.get("text", "")))
+        elif btype in ("image_url", "input_image"):
+            url = block.get("image_url", "")
+            if isinstance(url, dict):
+                url = url.get("url", "")
+            if url:
+                parts.append(ImagePart(url=url, media_type=media_type_of(url)))
+    return parts
+
+
+def _completion_tokens(answer: Answer) -> int:
+    if isinstance(answer, TextAnswer):
+        return (len(answer.text) + 3) // 4
+    return (len(json.dumps(answer.input, ensure_ascii=False)) + 3) // 4
 
 
 def _tool_call(answer: ToolAnswer) -> dict[str, Any]:

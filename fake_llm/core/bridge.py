@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from .content import part_to_json
 from .types import Answer, ChatRequest
 
 
@@ -74,5 +75,8 @@ class Bridge:
         return {
             "request_id": rid,
             "model": pending.request.model,
-            "messages": [{"role": m.role, "content": m.content} for m in pending.request.messages],
+            "messages": [
+                {"role": m.role, "parts": [part_to_json(p) for p in m.parts]}
+                for m in pending.request.messages
+            ],
         }
