@@ -1,4 +1,4 @@
-# Fake LLM
+# Fake LLM API
 
 **用真人回答代替模型输出的本地 API 服务。** Fake LLM 接收兼容 OpenAI 或 Anthropic 的请求，将对话放进一个共享队列；操作员在网页控制台阅读请求并作答，服务再把答案包装成对应协议的响应。
 
